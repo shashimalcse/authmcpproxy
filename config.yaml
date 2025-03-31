@@ -1,0 +1,5 @@
+auth_server_base_url: "https://api.asgardeo.io/t/thilinas/oauth2"
+listen_address: ":8080"
+timeout_seconds: 10
+path_mapping:
+  /.well-known/oauth-authorization-server: /token/.well-known/openid-configuration
