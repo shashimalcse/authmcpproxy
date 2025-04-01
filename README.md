@@ -64,7 +64,7 @@ path_mapping:               # OAuth endpoint mappings
 
 4. **Running the Proxy**
    ```bash
-   ./AuthMCPProxy
+   ./authmcpproxy
    ```
 
 ## Usage
