@@ -23,7 +23,7 @@ AuthMCPProxy is configured using a YAML file (`config.yaml`):
 auth_server_base_url: "<>"  # OAuth/OIDC server base URL
 mcp_server_base_url: "<>"   # Target MCP server URL
 listen_address: ":8080"     # Proxy listening address
-jwks_url: <>"               # JWKS endpoint of OAuth/OIDC server
+jwks_url: "<>"               # JWKS endpoint of OAuth/OIDC server
 timeout_seconds: 10         # Request timeout in seconds
 mcp_paths:                  # MCP paths to proxy
   - /messages/
