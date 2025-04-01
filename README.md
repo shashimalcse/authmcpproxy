@@ -1,7 +1,7 @@
 # AuthMCPProxy
 
 ## Overview
-AuthMCPProxy is a security middleware that sits in front of Message Context Protocol (MCP) servers to handle authentication and authorization. It acts as a proxy that intercepts incoming requests, validates authentication tokens, and forwards authorized requests to the underlying MCP server.
+AuthMCPProxy is a security middleware that support the Model Context Protocol (MCP) Authorization Specification (2025-03-26). It sits in front of MCP servers to handle authentication and authorization, acting as a proxy that intercepts incoming requests, validates authentication tokens, and forwards authorized requests to the underlying MCP server.
 
 ## How It Works
 1. AuthMCPProxy receives client requests intended for the MCP server
@@ -21,14 +21,14 @@ AuthMCPProxy is configured using a YAML file (`config.yaml`):
 
 ```yaml
 auth_server_base_url: "<>"  # OAuth/OIDC server base URL
-mcp_server_base_url: "<>"                        # Target MCP server URL
-listen_address: ":8080"                                           # Proxy listening address
-jwks_url: <>"        # JWKS endpoint of OAuth/OIDC server
-timeout_seconds: 10                                               # Request timeout in seconds
-mcp_paths:                                                        # MCP paths to proxy
+mcp_server_base_url: "<>"   # Target MCP server URL
+listen_address: ":8080"     # Proxy listening address
+jwks_url: <>"               # JWKS endpoint of OAuth/OIDC server
+timeout_seconds: 10         # Request timeout in seconds
+mcp_paths:                  # MCP paths to proxy
   - /messages/
   - /sse
-path_mapping:                                                     # OAuth endpoint mappings
+path_mapping:               # OAuth endpoint mappings
   /.well-known/oauth-authorization-server: /token/.well-known/openid-configuration
 ```
 
