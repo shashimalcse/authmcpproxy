@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
+	"encoding/json"
+	"errors"
 	"log"
+	"math/big"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -11,15 +15,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
 	AuthServerBaseURL string            `yaml:"auth_server_base_url"`
+	MCPServerBaseURL  string            `yaml:"mcp_server_base_url"`
+	MCPPaths          []string          `yaml:"mcp_paths"`
 	ListenAddress     string            `yaml:"listen_address"`
 	TimeoutSeconds    int               `yaml:"timeout_seconds"`
 	PathMapping       map[string]string `yaml:"path_mapping"`
+	JWKSURL           string            `yaml:"jwks_url"`
 }
+
+type JWKS struct {
+	Keys []json.RawMessage `json:"keys"`
+}
+
+var publicKeys map[string]*rsa.PublicKey
 
 func loadConfig() (*Config, error) {
 	f, err := os.Open("config.yaml")
@@ -40,16 +54,119 @@ func addCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 }
 
+func fetchJWKS(jwksURL string) error {
+	resp, err := http.Get(jwksURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var jwks JWKS
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return err
+	}
+
+	publicKeys = make(map[string]*rsa.PublicKey)
+	for _, key := range jwks.Keys {
+		var parsedKey struct {
+			Kid string `json:"kid"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+			Kty string `json:"kty"`
+		}
+		err := json.Unmarshal(key, &parsedKey)
+		if err != nil {
+			continue
+		}
+		if parsedKey.Kty != "RSA" {
+			continue
+		}
+		pubKey, err := parseRSAPublicKey(parsedKey.N, parsedKey.E)
+		if err == nil {
+			publicKeys[parsedKey.Kid] = pubKey
+		}
+	}
+	return nil
+}
+
+func parseRSAPublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
+	nBytes, err := jwt.DecodeSegment(nStr)
+	if err != nil {
+		return nil, err
+	}
+	eBytes, err := jwt.DecodeSegment(eStr)
+	if err != nil {
+		return nil, err
+	}
+
+	n := new(big.Int).SetBytes(nBytes)
+	e := 0
+	for _, b := range eBytes {
+		e = e<<8 + int(b)
+	}
+
+	return &rsa.PublicKey{N: n, E: e}, nil
+}
+
+func validateJWT(r *http.Request) error {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		return errors.New("missing or invalid Authorization header")
+	}
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		if kid, ok := token.Header["kid"].(string); ok {
+			if pubKey, exists := publicKeys[kid]; exists {
+				return pubKey, nil
+			}
+		}
+		return nil, errors.New("invalid kid or key not found")
+	})
+	if err != nil || !token.Valid {
+		return errors.New("invalid token")
+	}
+	return nil
+}
+
 func proxyHandler(cfg *Config) http.HandlerFunc {
-	targetURL, err := url.Parse(cfg.AuthServerBaseURL)
+	authBase, err := url.Parse(cfg.AuthServerBaseURL)
 	if err != nil {
 		log.Fatalf("Invalid auth server URL: %v", err)
+	}
+	mcpBase, err := url.Parse(cfg.MCPServerBaseURL)
+	if err != nil {
+		log.Fatalf("Invalid MCP server URL: %v", err)
+	}
+
+	authPaths := map[string]bool{
+		"/authorize": true,
+		"/token":     true,
+		"/.well-known/oauth-authorization-server": true,
+	}
+
+	mcpPaths := make(map[string]bool)
+	for _, p := range cfg.MCPPaths {
+		mcpPaths[p] = true
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
 			addCORS(w)
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		var targetURL *url.URL
+		if authPaths[r.URL.Path] {
+			targetURL = authBase
+		} else if mcpPaths[r.URL.Path] {
+			if err := validateJWT(r); err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+			targetURL = mcpBase
+		} else {
+			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
@@ -90,7 +207,16 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	if err := fetchJWKS(cfg.JWKSURL); err != nil {
+		log.Fatalf("Failed to fetch JWKS: %v", err)
+	}
+
 	mux := http.NewServeMux()
+
+	// Register MCP paths
+	for _, path := range cfg.MCPPaths {
+		mux.HandleFunc(path, proxyHandler(cfg))
+	}
 
 	// Register all paths from mapping
 	for path := range cfg.PathMapping {

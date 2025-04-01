@@ -1,5 +1,10 @@
 auth_server_base_url: "https://api.asgardeo.io/t/thilinas/oauth2"
+mcp_server_base_url: "http://0.0.0.0:8000"
 listen_address: ":8080"
+jwks_url: "https://api.asgardeo.io/t/thilinas/oauth2/jwks"
 timeout_seconds: 10
+mcp_paths:
+  - /messages/
+  - /sse
 path_mapping:
   /.well-known/oauth-authorization-server: /token/.well-known/openid-configuration
